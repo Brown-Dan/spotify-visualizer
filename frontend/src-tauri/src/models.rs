@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Song {
-    title: String,
-    artist: String,
+    pub(crate) title: String,
+    pub(crate) artist: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -13,6 +13,7 @@ pub struct ImageRequest {
     n: u8,
     size: String,
     style: String,
+    response_format: String
 }
 
 #[derive(Serialize, Debug)]
@@ -34,7 +35,7 @@ impl PromptRequest {
             messages: vec![
                 PromptRequestMessage {
                     role: "user".to_string(),
-                    content: format!("Give me an image prompt for the song {} by {}. The image should not contain a person as the primary piece of content - should be vintage/artistic", song.title, song.artist)
+                    content: format!("Give me an image prompt for the song {} by {}. The image should not contain a person as the primary piece of content - use your knowledge of the artist and song to generate the prompt and try to keep it short and brief under 1000 characters if possible and no words", song.title, song.artist)
                 },
             ],
         }
@@ -44,11 +45,12 @@ impl PromptRequest {
 impl ImageRequest {
     pub(crate) fn from_prompt(prompt: &str) -> Self {
         ImageRequest {
-            model: "dall-e-3".to_string(),
+            model: "dall-e-2".to_string(),
             prompt: prompt.to_string(),
             n: 1,
             size: "1024x1024".to_string(),
             style: "natural".to_string(),
+            response_format: "url".to_string(),
         }
     }
 }

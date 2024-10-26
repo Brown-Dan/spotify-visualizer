@@ -1,30 +1,24 @@
 <script lang="ts">
-    import {invoke} from '@tauri-apps/api/core';
-    import type {Song} from "$lib/model";
+    import CurrentlyPlayingSideBar from "$lib/components/CurrentlyPlayingSideBar.svelte";
+    import { ProgressRadial } from '@skeletonlabs/skeleton';
 
-    let artist = '';
-    let title = '';
+
     let image_url: string;
 
-    async function handleSubmit(event: Event) {
-        event.preventDefault();
-        const song = {
-            title: title,
-            artist: artist
-        } satisfies  Song
-
-        image_url = await invoke('generate_image', {"song": song});
-        image_url = image_url.replace(/^["']|["']$/g, '')
-    }
 </script>
 
-<form on:submit={handleSubmit}>
-    <input type="text" name="title">
-    <input type="text" name="artist">
-    <button type="submit">Submit</button>
-</form>
 
-{#if image_url}
-    <img src="{image_url}" alt="generated">
-{/if}
-
+<div class="h-[100vh] overflow-hidden grid grid-cols-[70%_30%]">
+    <main class="space-y-4 bg-primary-500 p-4">
+        <div class="p-4 overflow-auto">
+            {#if image_url}
+                <img src="{image_url}" alt="generated" class="mx-auto my-4 max-w-full rounded-md" />
+            {:else}
+                <div class="flex justify-center items-center h-screen">
+                    <ProgressRadial />
+                </div>
+            {/if}
+        </div>
+    </main>
+    <CurrentlyPlayingSideBar bind:image_url />
+</div>
