@@ -1,56 +1,95 @@
+use crate::spotify_repository;
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::cell::RefCell;
+use std::collections::HashMap;
+
+thread_local! {
+    static ARTIST_CACHE: RefCell<HashMap<String, Artist>> = RefCell::new(HashMap::new());
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Song {
     pub(crate) title: String,
-    pub(crate) artist: String,
+    pub(crate) artist: Vec<Artist>,
+    pub(crate) album_name: String,
+    pub(crate) image_url: String,
 }
 
-#[derive(Serialize, Debug)]
-pub struct ImageRequest {
-    model: String,
-    prompt: String,
-    n: u8,
-    size: String,
-    style: String,
-    response_format: String
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Artist {
+    pub(crate) name: String,
+    pub(crate) image_url: String,
 }
 
-#[derive(Serialize, Debug)]
-pub struct PromptRequest {
-    model: String,
-    messages: Vec<PromptRequestMessage>,
+async fn get_or_fetch_artist(json: &Value) -> Artist {
+    let artist_name = json["name"].as_str().unwrap().to_string();
+
+    if let Some(artist) = ARTIST_CACHE.with(|cache| {
+        cache.borrow().get(&artist_name).cloned()
+    }) {
+        return artist;
+    }
+
+    let artist = Artist::from_json(json).await;
+
+    ARTIST_CACHE.with(|cache| {
+        cache.borrow_mut().insert(artist_name.clone(), artist.clone());
+    });
+
+    artist
 }
 
-#[derive(Serialize, Debug)]
-pub struct PromptRequestMessage {
-    role: String,
-    content: String,
-}
+impl Artist {
+    pub(crate) async fn from_json(json: &Value) -> Self {
+        let artist_response = spotify_repository::get(json["href"].as_str().unwrap()).await.unwrap();
 
-impl PromptRequest {
-    pub(crate) fn from_song(song: &Song) -> Self {
-        PromptRequest {
-            model: "gpt-4o".to_string(),
-            messages: vec![
-                PromptRequestMessage {
-                    role: "user".to_string(),
-                    content: format!("Give me an image prompt for the song {} by {}. The image should not contain a person as the primary piece of content - use your knowledge of the artist and song to generate the prompt and try to keep it short and brief under 1000 characters if possible and no words", song.title, song.artist)
-                },
-            ],
+        let response_body = artist_response.text().await.unwrap();
+
+        let body_as_json: Value = serde_json::from_str(&*response_body).expect(&format!("Failed to parse JSON {}", response_body));
+
+        let image_urls = body_as_json["images"].as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|image| image["url"].as_str())
+            .collect::<Vec<_>>();
+
+        Artist {
+            name: json["name"].as_str().unwrap().to_string(),
+            image_url: image_urls[0].parse().unwrap(),
         }
     }
 }
 
-impl ImageRequest {
-    pub(crate) fn from_prompt(prompt: &str) -> Self {
-        ImageRequest {
-            model: "dall-e-2".to_string(),
-            prompt: prompt.to_string(),
-            n: 1,
-            size: "1024x1024".to_string(),
-            style: "natural".to_string(),
-            response_format: "url".to_string(),
+impl Song {
+    pub async fn from_json(json: Value) -> Self {
+        let song_name = json["item"]["name"].as_str().unwrap();
+
+        let artist_futures = json["item"]["artists"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|artist| Some(get_or_fetch_artist(artist)))
+            .collect::<Vec<_>>();
+        let artists = join_all(artist_futures).await;
+
+        let image_urls = json["item"]["album"]["images"].as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|image| image["url"].as_str())
+            .collect::<Vec<_>>();
+
+        let image_url = image_urls[0];
+
+        let album_name = json["item"]["album"]["name"].as_str().unwrap();
+
+        Song {
+            title: song_name.to_string(),
+            artist: artists,
+            album_name: album_name.parse().unwrap(),
+            image_url: image_url.to_string(),
         }
     }
 }
+
